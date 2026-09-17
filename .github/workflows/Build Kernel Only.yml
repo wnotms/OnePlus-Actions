@@ -232,13 +232,25 @@ jobs:
 
       - name: "⬇️ Clone Kernel Source | 克隆内核源码"
         run: |
+          set -e
           echo "🌐 正在初始化内核仓库..."
           mkdir kernel_workspace && cd kernel_workspace
 
           repo init -u https://github.com/Xiaomichael/kernel_manifest.git -b refs/heads/oneplus/${{ github.event.inputs.CPU }} -m ${{ github.event.inputs.FEIL }}.xml --depth=1
 
-          echo "🔄 同步代码库(使用$(nproc --all)线程)..."
-          repo sync -c -j$(nproc --all) --no-tags --no-clone-bundle --force-sync
+          echo "🔄 首次同步代码库(使用$(nproc --all)线程)..."
+          if ! repo sync -c -j$(nproc --all) --no-tags --no-clone-bundle --force-sync; then
+            echo "⚠️ 并行 repo sync 失败，可能是 CodeLinaro/Gitaly 临时不可用"
+            echo "⏳ 等待 30 秒后使用单线程重试..."
+            sleep 30
+
+            if ! repo sync -c -j1 --fail-fast --no-tags --no-clone-bundle --force-sync; then
+              echo "⚠️ 单线程重试仍失败，等待 60 秒后进行最后一次重试..."
+              sleep 60
+              repo sync -c -j1 --fail-fast --no-tags --no-clone-bundle --force-sync
+            fi
+          fi
+          echo "✅ 内核源码同步完成"
 
           rm kernel_platform/common/android/abi_gki_protected_exports_* || echo "No protected exports!"
           rm kernel_platform/msm-kernel/android/abi_gki_protected_exports_* || echo "No protected exports!"
