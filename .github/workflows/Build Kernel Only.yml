@@ -539,8 +539,6 @@ jobs:
           echo "⚡ Remove check_defconfig"
           sed -i 's/check_defconfig//' ./common/build.config.gki
           echo "✅ 内核配置更新完成"
-          sudo date -s "2025-12-06 12:00:00"
-          find ./common/ * -exec touch {} \;
 
       - name: "🔨 Build Kernel | 编译内核"
         run: |
@@ -558,6 +556,9 @@ jobs:
             make -j$(nproc --all) LLVM=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CC="ccache clang" RUSTC=../../prebuilts/rust/linux-x86/1.73.0b/bin/rustc PAHOLE=../../prebuilts/kernel-build-tools/linux-x86/bin/pahole LD=ld.lld HOSTLD=ld.lld O=out KCFLAGS+=-O2 gki_defconfig all
 
           elif [ "${{ github.event.inputs.KERNEL_VERSION }}" == "6.6" ]; then
+            # 固定内核编译时间，但不要修改 GitHub Actions Runner 的系统时间。
+            export KBUILD_BUILD_TIMESTAMP="Sat Dec 6 12:00:00 UTC 2025"
+            export KBUILD_BUILD_VERSION=1
             export PATH="/usr/lib/ccache:$GITHUB_WORKSPACE/kernel_workspace/kernel_platform/prebuilts/clang/host/linux-x86/clang-r510928/bin:$PATH"
             export PATH="/usr/lib/ccache:$PATH"
             sudo apt install libelf-dev
@@ -612,8 +613,6 @@ jobs:
 
       - name: "📦 Package Kernel | 打包内核"
         run: |
-          sudo apt install ntpdate
-          sudo ntpdate ntp.aliyun.com
           echo "📦 准备AnyKernel3打包环境..."
           git clone https://github.com/Xiaomichael/AnyKernel3 --depth=1
           rm -rf ./AnyKernel3/.git
