@@ -398,21 +398,49 @@ jobs:
           }
 
           echo "🔧 正在应用 Droidspaces SYSVIPC kABI 补丁..."
-          SYSVIPC_OK=0
-          for ABI_SLOT in 6_7_8 3_4_5 1_2_3; do
-            PATCH_FILE="/tmp/droidspaces_sysvipc_${ABI_SLOT}.patch"
-            curl -fL "${PATCH_BASE}/001.GKI-below-6.12-fix_sysvipc_kabi_${ABI_SLOT}.patch" -o "$PATCH_FILE"
 
-            if apply_patch_checked "$PATCH_FILE" "SYSVIPC kABI (${ABI_SLOT})"; then
-              SYSVIPC_OK=1
-              echo "✅ SYSVIPC kABI 使用 ${ABI_SLOT} 方案"
-              break
+          # OnePlus 13T / SM8750 / Linux 6.6 使用已确认空闲的 ABI 6/7/8 槽位。
+          # 不允许自动回退到 3/4/5 或 1/2/3，避免覆盖厂商 task_struct KABI 槽位。
+          if [ "${{ github.event.inputs.CPU }}" = "sm8750" ] && \
+             [ "${{ github.event.inputs.FEIL }}" = "oneplus_13t_b" ] && \
+             [ "${{ github.event.inputs.KERNEL_VERSION }}" = "6.6" ]; then
+            SYSVIPC_PATCH="/tmp/droidspaces_sysvipc_6_7_8.patch"
+            curl -fL "${PATCH_BASE}/001.GKI-below-6.12-fix_sysvipc_kabi_6_7_8.patch" -o "$SYSVIPC_PATCH"
+
+            if ! apply_patch_checked "$SYSVIPC_PATCH" "SYSVIPC kABI (6_7_8)"; then
+              echo "❌ OnePlus 13T 的 SYSVIPC 6_7_8 kABI 补丁无法干净应用，终止编译"
+              exit 1
             fi
-          done
 
-          if [ "$SYSVIPC_OK" -ne 1 ]; then
-            echo "❌ 无法为当前内核应用 Droidspaces SYSVIPC kABI 补丁"
-            exit 1
+            if ! grep -Fq 'ANDROID_KABI_USE(6, struct sysv_sem sysvsem);' include/linux/sched.h; then
+              echo "❌ 未检测到 ANDROID_KABI_USE(6, struct sysv_sem sysvsem)"
+              exit 1
+            fi
+
+            if ! grep -Fq '_ANDROID_KABI_REPLACE(ANDROID_KABI_RESERVE(7); ANDROID_KABI_RESERVE(8), struct sysv_shm sysvshm);' include/linux/sched.h; then
+              echo "❌ 未检测到 SYSVIPC 对 ABI 7/8 槽位的替换"
+              exit 1
+            fi
+
+            echo "✅ OnePlus 13T SYSVIPC kABI 已固定为 6_7_8"
+          else
+            # 其他内核/机型保留原有自动选择逻辑，避免影响现有构建流程。
+            SYSVIPC_OK=0
+            for ABI_SLOT in 6_7_8 3_4_5 1_2_3; do
+              PATCH_FILE="/tmp/droidspaces_sysvipc_${ABI_SLOT}.patch"
+              curl -fL "${PATCH_BASE}/001.GKI-below-6.12-fix_sysvipc_kabi_${ABI_SLOT}.patch" -o "$PATCH_FILE"
+
+              if apply_patch_checked "$PATCH_FILE" "SYSVIPC kABI (${ABI_SLOT})"; then
+                SYSVIPC_OK=1
+                echo "✅ SYSVIPC kABI 使用 ${ABI_SLOT} 方案"
+                break
+              fi
+            done
+
+            if [ "$SYSVIPC_OK" -ne 1 ]; then
+              echo "❌ 无法为当前内核应用 Droidspaces SYSVIPC kABI 补丁"
+              exit 1
+            fi
           fi
 
           # 5.10 及以下还需要 POSIX_MQUEUE kABI 修复。
@@ -425,20 +453,8 @@ jobs:
             fi
           fi
 
-          # 一加 13T / SM8750 容器环境兼容处理，避免 oplus_bsp_midas 在 PID namespace 场景下异常。
-          if [ "${{ github.event.inputs.CPU }}" = "sm8750" ] && [ "${{ github.event.inputs.FEIL }}" = "oneplus_13t_b" ]; then
-            echo "🔧 应用 OnePlus 13T oplus_bsp_midas 兼容补丁..."
-            MIDAS_PATCH="/tmp/fix_oplus_bsp_midas.patch"
-            curl -fL \
-              https://raw.githubusercontent.com/cctv18/oppo_oplus_realme_sm8750/main/droidspaces_patch/fix_oplus_bsp_midas.patch \
-              -o "$MIDAS_PATCH"
-
-            if ! apply_patch_checked "$MIDAS_PATCH" "OnePlus 13T oplus_bsp_midas compatibility"; then
-              echo "❌ oplus_bsp_midas 兼容补丁应用失败，为避免生成可能无法启动的内核，终止编译"
-              exit 1
-            fi
-          fi
-
+          # A/B 排查阶段不注入第三方 oplus_bsp_midas 补丁。
+          # 先验证官方 Droidspaces SYSVIPC KABI 修复本身是否可正常启动。
           echo "✅ Droidspaces 内核补丁应用完成"
 
       - name: "⚙️ Configure Kernel Options | 配置内核选项"
